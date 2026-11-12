@@ -4,11 +4,8 @@ import {
   Download,
   Sparkles,
   RefreshCw,
-  Sliders,
   Eye,
   Check,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
 } from 'lucide-react';
 import { enhanceImage, EnhanceResult } from './utils/sharpnessEngine';
@@ -21,7 +18,7 @@ export default function App() {
 
   // Settings
   const [scale, setScale] = useState<2 | 4>(4);
-  const [sharpnessLevel, setSharpnessLevel] = useState<'crisp' | 'ultra' | 'extreme'>('ultra');
+  const [sharpnessLevel, setSharpnessLevel] = useState<'crisp' | 'ultra' | 'maximum'>('maximum');
   const [isActualSize, setIsActualSize] = useState<boolean>(false);
 
   // Comparison slider
@@ -33,30 +30,31 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Map sharpness level to numeric values
-  const getSharpnessValues = useCallback((level: 'crisp' | 'ultra' | 'extreme') => {
+  const getSharpnessValues = useCallback((level: 'crisp' | 'ultra' | 'maximum') => {
     switch (level) {
       case 'crisp':
-        return { sharpness: 70, clarity: 60 };
+        return { sharpness: 75, clarity: 70, denoise: 20 };
       case 'ultra':
-        return { sharpness: 88, clarity: 80 };
-      case 'extreme':
-        return { sharpness: 100, clarity: 95 };
+        return { sharpness: 90, clarity: 85, denoise: 25 };
+      case 'maximum':
+        return { sharpness: 100, clarity: 95, denoise: 30 };
     }
   }, []);
 
-  // Process and enhance image
+  // Process with local neural super-resolution engine
   const processImage = useCallback(
     async (src: string, targetScale: 2 | 4 = scale, level = sharpnessLevel) => {
       try {
         setIsProcessing(true);
-        const { sharpness, clarity } = getSharpnessValues(level);
+        const { sharpness, clarity, denoise } = getSharpnessValues(level);
         const result = await enhanceImage(src, {
           scale: targetScale,
           sharpness,
           clarity,
+          denoise,
         });
         setEnhancedResult(result);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Enhancement error:', err);
       } finally {
         setIsProcessing(false);
@@ -169,7 +167,7 @@ export default function App() {
   };
 
   // Re-run enhancement when scale or sharpness settings change
-  const handleSettingChange = (newScale: 2 | 4, newLevel: 'crisp' | 'ultra' | 'extreme') => {
+  const handleSettingChange = (newScale: 2 | 4, newLevel: 'crisp' | 'ultra' | 'maximum') => {
     setScale(newScale);
     setSharpnessLevel(newLevel);
     if (originalRawUrl) {
@@ -182,7 +180,7 @@ export default function App() {
     if (!enhancedResult) return;
     const link = document.createElement('a');
     link.href = enhancedResult.enhancedDataUrl;
-    link.download = `sharp-enhanced-${enhancedResult.enhancedWidth}x${enhancedResult.enhancedHeight}.png`;
+    link.download = `neural-enhanced-${enhancedResult.enhancedWidth}x${enhancedResult.enhancedHeight}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -247,7 +245,6 @@ export default function App() {
       ctx.fillRect(30, 85, 15, 4);
     }
 
-    // Heavy blur simulation
     const low = document.createElement('canvas');
     low.width = 80;
     low.height = 80;
@@ -274,7 +271,7 @@ export default function App() {
                 NeuralPixel <span className="text-indigo-400 font-semibold">Sharp</span>
               </h1>
               <p className="text-[11px] text-zinc-400 hidden sm:block">
-                Convert blurry, low-res photos into crisp, sharp, high-quality images
+                High-definition edge deblurring and super-resolution
               </p>
             </div>
           </div>
@@ -304,7 +301,7 @@ export default function App() {
                 Enhance & Sharpen Blurry Photos
               </h2>
               <p className="text-sm text-zinc-400 max-w-md mx-auto">
-                Drop any low-resolution or fuzzy photo to instantly deblur edges, recover lost details, and boost resolution.
+                Drop any low-resolution or fuzzy photo to deblur edges, recover lost details, and boost resolution.
               </p>
             </div>
 
@@ -374,7 +371,7 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold flex items-center gap-1">
                   <Check className="w-3.5 h-3.5" />
-                  Sharpness Enhanced
+                  Sharpness Enhanced ({sharpnessLevel.toUpperCase()})
                 </span>
                 {enhancedResult && (
                   <span className="text-zinc-400">
@@ -430,7 +427,7 @@ export default function App() {
               {isProcessing && (
                 <div className="absolute inset-0 z-30 bg-zinc-950/70 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
                   <div className="w-10 h-10 rounded-full border-3 border-indigo-500/30 border-t-indigo-500 animate-spin" />
-                  <p className="text-xs font-semibold text-white">Deblurring & Sharpening Details...</p>
+                  <p className="text-xs font-semibold text-white">Reconstructing Sharp Edges & Details...</p>
                 </div>
               )}
 
@@ -534,7 +531,7 @@ export default function App() {
                       onClick={() => handleSettingChange(scale, 'crisp')}
                       className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
                         sharpnessLevel === 'crisp'
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-zinc-800 text-white'
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
@@ -544,21 +541,21 @@ export default function App() {
                       onClick={() => handleSettingChange(scale, 'ultra')}
                       className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
                         sharpnessLevel === 'ultra'
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-zinc-800 text-white'
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
                       Ultra Sharp
                     </button>
                     <button
-                      onClick={() => handleSettingChange(scale, 'extreme')}
+                      onClick={() => handleSettingChange(scale, 'maximum')}
                       className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
-                        sharpnessLevel === 'extreme'
+                        sharpnessLevel === 'maximum'
                           ? 'bg-indigo-600 text-white'
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      Extreme
+                      Maximum Clarity
                     </button>
                   </div>
                 </div>
@@ -582,7 +579,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-zinc-900 bg-zinc-950 py-3.5 px-4 text-center text-xs text-zinc-500">
-        <p>NeuralPixel Sharp • Dropzone photo enhancer & sharpness upscaler</p>
+        <p>NeuralPixel Sharp • Dropzone photo enhancer & edge deblurring</p>
       </footer>
     </div>
   );
