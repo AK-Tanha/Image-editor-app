@@ -4,19 +4,17 @@ import {
   Download,
   Sparkles,
   RefreshCw,
-  Image as ImageIcon,
-  Check,
   Sliders,
   Eye,
-  Columns,
-  Layers,
-  ArrowRight,
+  Check,
+  ZoomIn,
+  ZoomOut,
   Maximize2,
 } from 'lucide-react';
 import { enhanceImage, EnhanceResult } from './utils/sharpnessEngine';
 
 export default function App() {
-  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [originalRawUrl, setOriginalRawUrl] = useState<string | null>(null);
   const [enhancedResult, setEnhancedResult] = useState<EnhanceResult | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
@@ -24,6 +22,7 @@ export default function App() {
   // Settings
   const [scale, setScale] = useState<2 | 4>(4);
   const [sharpnessLevel, setSharpnessLevel] = useState<'crisp' | 'ultra' | 'extreme'>('ultra');
+  const [isActualSize, setIsActualSize] = useState<boolean>(false);
 
   // Comparison slider
   const [sliderPos, setSliderPos] = useState<number>(50); // 0 to 100%
@@ -34,14 +33,14 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Map sharpness level to numeric values
-  const getSharpnessValue = useCallback((level: 'crisp' | 'ultra' | 'extreme') => {
+  const getSharpnessValues = useCallback((level: 'crisp' | 'ultra' | 'extreme') => {
     switch (level) {
       case 'crisp':
-        return { sharpness: 65, clarity: 50, denoise: 20 };
+        return { sharpness: 70, clarity: 60 };
       case 'ultra':
-        return { sharpness: 85, clarity: 75, denoise: 25 };
+        return { sharpness: 88, clarity: 80 };
       case 'extreme':
-        return { sharpness: 100, clarity: 95, denoise: 30 };
+        return { sharpness: 100, clarity: 95 };
     }
   }, []);
 
@@ -50,12 +49,11 @@ export default function App() {
     async (src: string, targetScale: 2 | 4 = scale, level = sharpnessLevel) => {
       try {
         setIsProcessing(true);
-        const { sharpness, clarity, denoise } = getSharpnessValue(level);
+        const { sharpness, clarity } = getSharpnessValues(level);
         const result = await enhanceImage(src, {
           scale: targetScale,
           sharpness,
           clarity,
-          denoise,
         });
         setEnhancedResult(result);
       } catch (err) {
@@ -64,17 +62,8 @@ export default function App() {
         setIsProcessing(false);
       }
     },
-    [scale, sharpnessLevel, getSharpnessValue]
+    [scale, sharpnessLevel, getSharpnessValues]
   );
-
-  // Re-run enhancement when scale or sharpness settings change
-  const handleSettingChange = (newScale: 2 | 4, newLevel: 'crisp' | 'ultra' | 'extreme') => {
-    setScale(newScale);
-    setSharpnessLevel(newLevel);
-    if (originalUrl) {
-      processImage(originalUrl, newScale, newLevel);
-    }
-  };
 
   // Handle uploaded file
   const handleFile = (file: File) => {
@@ -83,7 +72,7 @@ export default function App() {
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
       if (dataUrl) {
-        setOriginalUrl(dataUrl);
+        setOriginalRawUrl(dataUrl);
         processImage(dataUrl, scale, sharpnessLevel);
       }
     };
@@ -179,11 +168,20 @@ export default function App() {
     }
   };
 
+  // Re-run enhancement when scale or sharpness settings change
+  const handleSettingChange = (newScale: 2 | 4, newLevel: 'crisp' | 'ultra' | 'extreme') => {
+    setScale(newScale);
+    setSharpnessLevel(newLevel);
+    if (originalRawUrl) {
+      processImage(originalRawUrl, newScale, newLevel);
+    }
+  };
+
   // Download handler
   const handleDownload = () => {
     if (!enhancedResult) return;
     const link = document.createElement('a');
-    link.href = enhancedResult.dataUrl;
+    link.href = enhancedResult.enhancedDataUrl;
     link.download = `sharp-enhanced-${enhancedResult.enhancedWidth}x${enhancedResult.enhancedHeight}.png`;
     document.body.appendChild(link);
     link.click();
@@ -198,56 +196,47 @@ export default function App() {
     const ctx = c.getContext('2d')!;
 
     if (type === 'face') {
-      // Warm portrait gradient
       const bg = ctx.createLinearGradient(0, 0, 160, 160);
       bg.addColorStop(0, '#3a202d');
       bg.addColorStop(1, '#1b1218');
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, 160, 160);
 
-      // Face
       ctx.fillStyle = '#e8b89d';
       ctx.beginPath();
       ctx.ellipse(80, 85, 38, 48, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Hair
       ctx.fillStyle = '#2b1a14';
       ctx.beginPath();
       ctx.arc(80, 65, 42, Math.PI, Math.PI * 2);
       ctx.fill();
 
-      // Blurry eyes
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.ellipse(68, 80, 7, 4, 0, 0, Math.PI * 2);
       ctx.ellipse(92, 80, 7, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Iris
       ctx.fillStyle = '#2c5d4f';
       ctx.beginPath();
       ctx.arc(68, 80, 3.5, 0, Math.PI * 2);
       ctx.arc(92, 80, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Lips
       ctx.fillStyle = '#be5965';
       ctx.beginPath();
       ctx.ellipse(80, 108, 9, 3.5, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Urban landscape
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, 160, 160);
 
-      // Neon buildings
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(20, 50, 35, 110);
       ctx.fillRect(65, 30, 45, 130);
       ctx.fillRect(120, 60, 30, 100);
 
-      // Glowing neon windows
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(72, 45, 12, 6);
       ctx.fillRect(72, 60, 12, 6);
@@ -267,7 +256,7 @@ export default function App() {
     lCtx.drawImage(c, 0, 0, 80, 80);
 
     const dataUrl = low.toDataURL('image/jpeg', 0.4);
-    setOriginalUrl(dataUrl);
+    setOriginalRawUrl(dataUrl);
     processImage(dataUrl, scale, sharpnessLevel);
   };
 
@@ -290,10 +279,10 @@ export default function App() {
             </div>
           </div>
 
-          {originalUrl && (
+          {originalRawUrl && (
             <button
               onClick={() => {
-                setOriginalUrl(null);
+                setOriginalRawUrl(null);
                 setEnhancedResult(null);
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-300 hover:text-white border border-zinc-800 transition-colors"
@@ -307,15 +296,15 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 sm:py-8 flex flex-col items-center justify-center">
-        {/* VIEW 1: DROPZONE (When no image is uploaded) */}
-        {!originalUrl && (
+        {/* VIEW 1: DROPZONE */}
+        {!originalRawUrl && (
           <div className="w-full max-w-2xl flex flex-col items-center gap-6 animate-in fade-in duration-300">
             <div className="text-center space-y-1.5">
               <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                 Enhance & Sharpen Blurry Photos
               </h2>
               <p className="text-sm text-zinc-400 max-w-md mx-auto">
-                Drop any low-resolution or fuzzy photo to instantly reconstruct sharp edges, deep clarity, and 4× resolution.
+                Drop any low-resolution or fuzzy photo to instantly deblur edges, recover lost details, and boost resolution.
               </p>
             </div>
 
@@ -377,15 +366,15 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 2: ENHANCED RESULT & DOWNLOAD (When image is uploaded) */}
-        {originalUrl && (
+        {/* VIEW 2: ENHANCED RESULT & DOWNLOAD */}
+        {originalRawUrl && (
           <div className="w-full flex flex-col gap-5 animate-in fade-in duration-200">
             {/* Top Status & Quick Stats */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 text-xs">
               <div className="flex items-center gap-3">
                 <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold flex items-center gap-1">
                   <Check className="w-3.5 h-3.5" />
-                  Enhanced & Sharpened
+                  Sharpness Enhanced
                 </span>
                 {enhancedResult && (
                   <span className="text-zinc-400">
@@ -394,8 +383,21 @@ export default function App() {
                 )}
               </div>
 
-              {/* Hold Spacebar Tip */}
+              {/* View options */}
               <div className="flex items-center gap-2 text-zinc-400">
+                <button
+                  onClick={() => setIsActualSize((s) => !s)}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                    isActualSize
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                  }`}
+                  title="Toggle 100% 1:1 pixel zoom"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 inline mr-1" />
+                  {isActualSize ? '1:1 Actual Size' : 'Fit View'}
+                </button>
+
                 <button
                   onMouseDown={() => setIsHoldingOriginal(true)}
                   onMouseUp={() => setIsHoldingOriginal(false)}
@@ -421,26 +423,32 @@ export default function App() {
               onMouseUp={handleMouseUp}
               onTouchMove={handleTouchMove}
               onMouseLeave={() => setIsDraggingSlider(false)}
-              className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[65vh] bg-zinc-950 rounded-2xl border border-zinc-800/80 overflow-hidden shadow-2xl cursor-ew-resize select-none flex items-center justify-center"
+              className={`relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[65vh] bg-zinc-950 rounded-2xl border border-zinc-800/80 overflow-hidden shadow-2xl cursor-ew-resize select-none flex items-center justify-center ${
+                isActualSize ? 'overflow-auto cursor-default' : ''
+              }`}
             >
               {isProcessing && (
                 <div className="absolute inset-0 z-30 bg-zinc-950/70 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
                   <div className="w-10 h-10 rounded-full border-3 border-indigo-500/30 border-t-indigo-500 animate-spin" />
-                  <p className="text-xs font-semibold text-white">Sharpening & Reconstructing Edges...</p>
+                  <p className="text-xs font-semibold text-white">Deblurring & Sharpening Details...</p>
                 </div>
               )}
 
               {/* Enhanced Sharp Image (Background) */}
               {enhancedResult && (
                 <img
-                  src={isHoldingOriginal ? originalUrl : enhancedResult.dataUrl}
+                  src={isHoldingOriginal ? enhancedResult.originalScaledDataUrl : enhancedResult.enhancedDataUrl}
                   alt="Enhanced Sharp Image"
-                  className="max-w-full max-h-full object-contain pointer-events-none"
+                  className={
+                    isActualSize
+                      ? 'max-w-none pointer-events-none'
+                      : 'max-w-full max-h-full object-contain pointer-events-none'
+                  }
                 />
               )}
 
               {/* Blurry Original Image (Foreground clipped by slider) */}
-              {originalUrl && !isHoldingOriginal && (
+              {enhancedResult && !isHoldingOriginal && (
                 <div
                   className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none"
                   style={{
@@ -448,9 +456,13 @@ export default function App() {
                   }}
                 >
                   <img
-                    src={originalUrl}
+                    src={enhancedResult.originalScaledDataUrl}
                     alt="Original Blurry Image"
-                    className="max-w-full max-h-full object-contain pointer-events-none [image-rendering:pixelated]"
+                    className={
+                      isActualSize
+                        ? 'max-w-none pointer-events-none'
+                        : 'max-w-full max-h-full object-contain pointer-events-none'
+                    }
                   />
                 </div>
               )}
@@ -479,7 +491,7 @@ export default function App() {
               </div>
               <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-indigo-950/80 border border-indigo-700 text-[11px] font-bold text-cyan-300 backdrop-blur-md pointer-events-none shadow-md flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-cyan-400" />
-                AFTER (Sharp & Enhanced)
+                AFTER (Sharp Enhanced)
               </div>
             </div>
 
@@ -522,7 +534,7 @@ export default function App() {
                       onClick={() => handleSettingChange(scale, 'crisp')}
                       className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
                         sharpnessLevel === 'crisp'
-                          ? 'bg-zinc-800 text-white'
+                          ? 'bg-indigo-600 text-white'
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
@@ -542,7 +554,7 @@ export default function App() {
                       onClick={() => handleSettingChange(scale, 'extreme')}
                       className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
                         sharpnessLevel === 'extreme'
-                          ? 'bg-zinc-800 text-white'
+                          ? 'bg-indigo-600 text-white'
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
