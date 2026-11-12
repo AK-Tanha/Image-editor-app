@@ -1,0 +1,6 @@
+{
+  "name": "NeuralPixel AI - Super Resolution & Image Enhancer",
+  "description": "Transform low-resolution, blurry photos into crisp, high-definition images using advanced neural networks and deep-learning generative upscaling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
