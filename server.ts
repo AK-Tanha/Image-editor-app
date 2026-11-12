@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import sharp from 'sharp';
 
 dotenv.config();
 
@@ -280,6 +281,107 @@ CRITICAL RULES:
       error: error.message || 'Image enhancement failed.',
       status: error.status || 500,
     });
+  }
+});
+
+// High-Performance Open-Source Super-Resolution & Sharpening (via Sharp / libvips)
+app.post('/api/enhance-sharp', async (req, res) => {
+  try {
+    const { imageBase64, scale = 4, sharpness = 'ultra' } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'Image base64 is required.' });
+    }
+
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const inputBuffer = Buffer.from(cleanBase64, 'base64');
+
+    const metadata = await sharp(inputBuffer).metadata();
+    const origW = metadata.width || 200;
+    const origH = metadata.height || 200;
+
+    const scaleFactor = scale === 2 ? 2 : 4;
+    const targetW = Math.min(4096, origW * scaleFactor);
+    const targetH = Math.min(4096, origH * scaleFactor);
+
+    // 1. Scaled reference of the original photo for pixel-aligned comparison
+    const origScaledBuffer = await sharp(inputBuffer)
+      .resize(targetW, targetH, {
+        kernel: sharp.kernel.nearest,
+      })
+      .png()
+      .toBuffer();
+
+    // 2. Open-Source Lanczos3 Super-Resolution + CLAHE + Multi-threshold Sharpening
+    let sigma = 1.2;
+    let m1 = 1.5;
+    let m2 = 2.2;
+    let maxSlope = 3;
+
+    if (sharpness === 'crisp') {
+      sigma = 0.9;
+      m1 = 1.2;
+      m2 = 1.6;
+      maxSlope = 2;
+    } else if (sharpness === 'ultra') {
+      sigma = 1.3;
+      m1 = 1.6;
+      m2 = 2.4;
+      maxSlope = 3;
+    } else if (sharpness === 'maximum') {
+      sigma = 1.6;
+      m1 = 1.9;
+      m2 = 2.9;
+      maxSlope = 4;
+    }
+
+    let pipeline = sharp(inputBuffer)
+      .resize(targetW, targetH, {
+        kernel: sharp.kernel.lanczos3,
+        fastShrinkOnLoad: false,
+      });
+
+    // Contrast-Limited Adaptive Histogram Equalization (reconstructs texture & dynamic range)
+    try {
+      pipeline = pipeline.clahe({
+        width: Math.min(targetW, 16),
+        height: Math.min(targetH, 16),
+        maxSlope,
+      });
+    } catch {
+      // Small image fallback
+    }
+
+    // Adaptive sharpening: x1 flat threshold prevents broken pixels in smooth areas
+    pipeline = pipeline.sharpen({
+      sigma,
+      m1,
+      m2,
+      x1: 2,
+      y2: 12,
+      y3: 24,
+    });
+
+    // Subtle vibrance boost (12%)
+    pipeline = pipeline.modulate({
+      saturation: 1.12,
+      brightness: 1.02,
+    });
+
+    const enhancedBuffer = await pipeline.png().toBuffer();
+
+    res.json({
+      success: true,
+      enhancedDataUrl: `data:image/png;base64,${enhancedBuffer.toString('base64')}`,
+      originalScaledDataUrl: `data:image/png;base64,${origScaledBuffer.toString('base64')}`,
+      originalWidth: origW,
+      originalHeight: origH,
+      enhancedWidth: targetW,
+      enhancedHeight: targetH,
+      engine: 'Sharp (libvips)',
+    });
+  } catch (error: any) {
+    console.error('Sharp enhancement error:', error);
+    res.status(500).json({ error: error.message || 'Image enhancement failed' });
   }
 });
 
