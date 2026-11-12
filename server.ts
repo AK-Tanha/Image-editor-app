@@ -21,7 +21,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 const getAIClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY environment variable is not configured.');
+    return null;
   }
   return new GoogleGenAI({
     apiKey,
@@ -53,6 +53,9 @@ app.post('/api/analyze', async (req, res) => {
 
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const ai = getAIClient();
+    if (!ai) {
+      return res.status(400).json({ error: 'Gemini API key is not configured.' });
+    }
 
     const prompt = `Analyze this image as a deep learning computer vision neural enhancement expert.
 Examine degradation, resolution loss, pixelation, blurriness, JPEG block artifacts, sensor noise, dynamic range, and subject details.
@@ -163,6 +166,12 @@ app.post('/api/enhance', async (req, res) => {
 
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const ai = getAIClient();
+    if (!ai) {
+      return res.status(400).json({
+        error: 'Gemini API key is not configured in environment.',
+        noApiKey: true,
+      });
+    }
 
     // Specific neural prompt per mode to guide high-fidelity reconstruction
     let modeGuidance = '';

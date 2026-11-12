@@ -1,85 +1,124 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Header } from './components/Header';
-import { ImageComparison } from './components/ImageComparison';
-import { ControlsPanel } from './components/ControlsPanel';
-import { DiagnosticCard } from './components/DiagnosticCard';
-import { SampleGallery } from './components/SampleGallery';
-import { Histogram } from './components/Histogram';
-import { HelpModal } from './components/HelpModal';
-import { SAMPLE_IMAGES } from './utils/sampleImages';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  loadImage,
-  getImageMetrics,
-  processClientNeuralUpscale,
-  generateDifferenceMap,
-} from './utils/neuralFilters';
-import {
-  EnhancementSettings,
-  ImageMetrics,
-  ImageAnalysis,
-  SampleImage,
-} from './types';
-import { AlertCircle, X, Sparkles, Wand2 } from 'lucide-react';
+  Upload,
+  Download,
+  Sparkles,
+  RefreshCw,
+  Image as ImageIcon,
+  Check,
+  Sliders,
+  Eye,
+  Columns,
+  Layers,
+  ArrowRight,
+  Maximize2,
+} from 'lucide-react';
+import { enhanceImage, EnhanceResult } from './utils/sharpnessEngine';
 
 export default function App() {
-  const [originalUrl, setOriginalUrl] = useState<string>('');
-  const [enhancedUrl, setEnhancedUrl] = useState<string>('');
-  const [differenceMapUrl, setDifferenceMapUrl] = useState<string>('');
-  const [originalMetrics, setOriginalMetrics] = useState<ImageMetrics | null>(null);
-  const [enhancedMetrics, setEnhancedMetrics] = useState<ImageMetrics | null>(null);
-  const [activeSampleId, setActiveSampleId] = useState<string>(SAMPLE_IMAGES[0].id);
-
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [enhancedResult, setEnhancedResult] = useState<EnhanceResult | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysis, setAnalysis] = useState<ImageAnalysis | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [engineUsed, setEngineUsed] = useState<'gemini' | 'client-neural'>('client-neural');
-  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
-  const [settings, setSettings] = useState<EnhancementSettings>({
-    mode: 'face',
-    scale: '4x',
-    model: 'gemini-3.1-flash-lite-image',
-    sharpness: 70,
-    denoise: 35,
-    microContrast: 40,
-    saturation: 10,
-    faceClarity: 60,
-    customPrompt: '',
-  });
+  // Settings
+  const [scale, setScale] = useState<2 | 4>(4);
+  const [sharpnessLevel, setSharpnessLevel] = useState<'crisp' | 'ultra' | 'extreme'>('ultra');
 
-  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Comparison slider
+  const [sliderPos, setSliderPos] = useState<number>(50); // 0 to 100%
+  const [isDraggingSlider, setIsDraggingSlider] = useState<boolean>(false);
+  const [isHoldingOriginal, setIsHoldingOriginal] = useState<boolean>(false);
 
-  // Check backend health on mount
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => res.json())
-      .then((data) => {
-        setHasApiKey(Boolean(data.hasApiKey));
-      })
-      .catch(() => {
-        setHasApiKey(false);
-      });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Map sharpness level to numeric values
+  const getSharpnessValue = useCallback((level: 'crisp' | 'ultra' | 'extreme') => {
+    switch (level) {
+      case 'crisp':
+        return { sharpness: 65, clarity: 50, denoise: 20 };
+      case 'ultra':
+        return { sharpness: 85, clarity: 75, denoise: 25 };
+      case 'extreme':
+        return { sharpness: 100, clarity: 95, denoise: 30 };
+    }
   }, []);
 
-  // Initialize with the first sample image
-  useEffect(() => {
-    const initialSample = SAMPLE_IMAGES[0];
-    loadAndProcessInitialSample(initialSample);
-  }, []);
+  // Process and enhance image
+  const processImage = useCallback(
+    async (src: string, targetScale: 2 | 4 = scale, level = sharpnessLevel) => {
+      try {
+        setIsProcessing(true);
+        const { sharpness, clarity, denoise } = getSharpnessValue(level);
+        const result = await enhanceImage(src, {
+          scale: targetScale,
+          sharpness,
+          clarity,
+          denoise,
+        });
+        setEnhancedResult(result);
+      } catch (err) {
+        console.error('Enhancement error:', err);
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [scale, sharpnessLevel, getSharpnessValue]
+  );
 
-  // Global paste handler for pasting images from clipboard
+  // Re-run enhancement when scale or sharpness settings change
+  const handleSettingChange = (newScale: 2 | 4, newLevel: 'crisp' | 'ultra' | 'extreme') => {
+    setScale(newScale);
+    setSharpnessLevel(newLevel);
+    if (originalUrl) {
+      processImage(originalUrl, newScale, newLevel);
+    }
+  };
+
+  // Handle uploaded file
+  const handleFile = (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        setOriginalUrl(dataUrl);
+        processImage(dataUrl, scale, sharpnessLevel);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFile(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  // Paste handler
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
       for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          const blob = items[i].getAsFile();
-          if (blob) {
-            handleUploadFile(blob);
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) {
+            handleFile(file);
             break;
           }
         }
@@ -87,374 +126,452 @@ export default function App() {
     };
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [settings]);
+  }, [scale, sharpnessLevel]);
 
-  // Initial load helper
-  const loadAndProcessInitialSample = async (sample: SampleImage) => {
-    try {
-      setIsProcessing(true);
-      setOriginalUrl(sample.dataUrl);
-      setActiveSampleId(sample.id);
-      setSettings((prev) => ({
-        ...prev,
-        mode: sample.presetMode,
-        scale: sample.presetScale,
-      }));
+  // Spacebar to hold original
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        setIsHoldingOriginal(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsHoldingOriginal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
-      const origImg = await loadImage(sample.dataUrl);
-      const origMetrics = getImageMetrics(origImg);
-      setOriginalMetrics(origMetrics);
+  // Slider dragging calculation
+  const updateSliderFromClientX = useCallback((clientX: number) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const pos = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPos(pos);
+  }, []);
 
-      // Create initial original canvas
-      const origCanvas = document.createElement('canvas');
-      origCanvas.width = origMetrics.width;
-      origCanvas.height = origMetrics.height;
-      const oCtx = origCanvas.getContext('2d');
-      if (oCtx) oCtx.drawImage(origImg, 0, 0);
-      originalCanvasRef.current = origCanvas;
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingSlider(true);
+    updateSliderFromClientX(e.clientX);
+  };
 
-      // Run initial fast local neural enhancement
-      const clientEnhancedUrl = await processClientNeuralUpscale(origImg, {
-        ...settings,
-        mode: sample.presetMode,
-        scale: sample.presetScale,
-      });
-
-      setEnhancedUrl(clientEnhancedUrl);
-      const enhImg = await loadImage(clientEnhancedUrl);
-      const enhMetrics = getImageMetrics(enhImg);
-      setEnhancedMetrics(enhMetrics);
-
-      // Create enhanced canvas
-      const enhCanvas = document.createElement('canvas');
-      enhCanvas.width = enhMetrics.width;
-      enhCanvas.height = enhMetrics.height;
-      const eCtx = enhCanvas.getContext('2d');
-      if (eCtx) eCtx.drawImage(enhImg, 0, 0);
-      enhancedCanvasRef.current = enhCanvas;
-
-      // Difference map
-      const diffUrl = generateDifferenceMap(origCanvas, enhCanvas);
-      setDifferenceMapUrl(diffUrl);
-      setEngineUsed('client-neural');
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsProcessing(false);
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDraggingSlider) {
+      updateSliderFromClientX(e.clientX);
     }
   };
 
-  // Handle sample selection
-  const handleSelectSample = (sample: SampleImage) => {
-    setAnalysis(null);
-    setErrorMessage(null);
-    loadAndProcessInitialSample(sample);
+  const handleMouseUp = () => {
+    setIsDraggingSlider(false);
   };
 
-  // Handle uploading custom file
-  const handleUploadFile = async (file: File) => {
-    try {
-      setErrorMessage(null);
-      setAnalysis(null);
-      setActiveSampleId('');
-      setIsProcessing(true);
-
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string;
-        if (!dataUrl) return;
-
-        setOriginalUrl(dataUrl);
-        const origImg = await loadImage(dataUrl);
-        const origMetrics = getImageMetrics(origImg, file.size);
-        setOriginalMetrics(origMetrics);
-
-        const origCanvas = document.createElement('canvas');
-        origCanvas.width = origMetrics.width;
-        origCanvas.height = origMetrics.height;
-        const oCtx = origCanvas.getContext('2d');
-        if (oCtx) oCtx.drawImage(origImg, 0, 0);
-        originalCanvasRef.current = origCanvas;
-
-        // Auto client-side upscale first so user sees immediate results
-        const enhancedResult = await processClientNeuralUpscale(origImg, settings);
-        setEnhancedUrl(enhancedResult);
-        const enhImg = await loadImage(enhancedResult);
-        const enhMetrics = getImageMetrics(enhImg);
-        setEnhancedMetrics(enhMetrics);
-
-        const enhCanvas = document.createElement('canvas');
-        enhCanvas.width = enhMetrics.width;
-        enhCanvas.height = enhMetrics.height;
-        const eCtx = enhCanvas.getContext('2d');
-        if (eCtx) eCtx.drawImage(enhImg, 0, 0);
-        enhancedCanvasRef.current = enhCanvas;
-
-        const diff = generateDifferenceMap(origCanvas, enhCanvas);
-        setDifferenceMapUrl(diff);
-        setEngineUsed('client-neural');
-        setIsProcessing(false);
-      };
-      reader.readAsDataURL(file);
-    } catch (err: any) {
-      setErrorMessage('Failed to read image file: ' + err.message);
-      setIsProcessing(false);
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches[0] && isDraggingSlider) {
+      updateSliderFromClientX(e.touches[0].clientX);
     }
   };
 
-  // Run Gemini Cloud AI Enhancement
-  const handleEnhanceWithGemini = async () => {
-    if (!originalUrl) return;
-    setIsProcessing(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/enhance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: originalUrl,
-          mimeType: originalUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
-          mode: settings.mode,
-          scale: settings.scale,
-          modelChoice: settings.model,
-          customInstruction: settings.customPrompt,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Gemini neural enhancement failed.');
-      }
-
-      setEnhancedUrl(data.enhancedImage);
-      const enhImg = await loadImage(data.enhancedImage);
-      const enhMetrics = getImageMetrics(enhImg);
-      setEnhancedMetrics(enhMetrics);
-
-      if (originalCanvasRef.current) {
-        const enhCanvas = document.createElement('canvas');
-        enhCanvas.width = enhMetrics.width;
-        enhCanvas.height = enhMetrics.height;
-        const eCtx = enhCanvas.getContext('2d');
-        if (eCtx) eCtx.drawImage(enhImg, 0, 0);
-        enhancedCanvasRef.current = enhCanvas;
-
-        const diff = generateDifferenceMap(originalCanvasRef.current, enhCanvas);
-        setDifferenceMapUrl(diff);
-      }
-
-      setEngineUsed('gemini');
-    } catch (err: any) {
-      console.warn('Gemini enhancement error, falling back to local neural shaders:', err);
-      setErrorMessage(
-        `${err.message}. Running local high-precision neural shader fallback instead.`
-      );
-      // Run fallback local upscale
-      handleEnhanceClientFast();
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Run Fast Client Neural Upscale
-  const handleEnhanceClientFast = async () => {
-    if (!originalUrl) return;
-    setIsProcessing(true);
-    setErrorMessage(null);
-
-    try {
-      const origImg = await loadImage(originalUrl);
-      const enhancedResult = await processClientNeuralUpscale(origImg, settings);
-      setEnhancedUrl(enhancedResult);
-
-      const enhImg = await loadImage(enhancedResult);
-      const enhMetrics = getImageMetrics(enhImg);
-      setEnhancedMetrics(enhMetrics);
-
-      if (originalCanvasRef.current) {
-        const enhCanvas = document.createElement('canvas');
-        enhCanvas.width = enhMetrics.width;
-        enhCanvas.height = enhMetrics.height;
-        const eCtx = enhCanvas.getContext('2d');
-        if (eCtx) eCtx.drawImage(enhImg, 0, 0);
-        enhancedCanvasRef.current = enhCanvas;
-
-        const diff = generateDifferenceMap(originalCanvasRef.current, enhCanvas);
-        setDifferenceMapUrl(diff);
-      }
-
-      setEngineUsed('client-neural');
-    } catch (err: any) {
-      setErrorMessage('Local neural filter error: ' + err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Run Gemini Neural Vision Analysis
-  const handleRunAnalysis = async () => {
-    if (!originalUrl) return;
-    setIsAnalyzing(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: originalUrl,
-          mimeType: originalUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to analyze image.');
-      }
-
-      setAnalysis(data.analysis);
-      // Automatically apply recommended mode and scale
-      if (data.analysis.recommendedMode) {
-        setSettings((prev) => ({
-          ...prev,
-          mode: data.analysis.recommendedMode,
-          scale: data.analysis.recommendedScale || prev.scale,
-        }));
-      }
-    } catch (err: any) {
-      setErrorMessage('Analysis diagnostic error: ' + err.message);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  // Download high-resolution image
-  const handleDownload = (format: 'png' | 'jpeg') => {
-    if (!enhancedUrl) return;
+  // Download handler
+  const handleDownload = () => {
+    if (!enhancedResult) return;
     const link = document.createElement('a');
-    link.href = enhancedUrl;
-    link.download = `neuralpixel-enhanced-${settings.mode}-${settings.scale}.${format}`;
+    link.href = enhancedResult.dataUrl;
+    link.download = `sharp-enhanced-${enhancedResult.enhancedWidth}x${enhancedResult.enhancedHeight}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Copy to clipboard
-  const handleCopyClipboard = async () => {
-    if (!enhancedUrl) return;
-    try {
-      const res = await fetch(enhancedUrl);
-      const blob = await res.blob();
-      await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob }),
-      ]);
-    } catch (e) {
-      console.warn('Clipboard write failed:', e);
-    }
-  };
+  // Quick synthetic demo generator for testing without a file
+  const loadDemo = (type: 'face' | 'scene') => {
+    const c = document.createElement('canvas');
+    c.width = 160;
+    c.height = 160;
+    const ctx = c.getContext('2d')!;
 
-  // Reset workspace
-  const handleReset = () => {
-    loadAndProcessInitialSample(SAMPLE_IMAGES[0]);
+    if (type === 'face') {
+      // Warm portrait gradient
+      const bg = ctx.createLinearGradient(0, 0, 160, 160);
+      bg.addColorStop(0, '#3a202d');
+      bg.addColorStop(1, '#1b1218');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, 160, 160);
+
+      // Face
+      ctx.fillStyle = '#e8b89d';
+      ctx.beginPath();
+      ctx.ellipse(80, 85, 38, 48, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Hair
+      ctx.fillStyle = '#2b1a14';
+      ctx.beginPath();
+      ctx.arc(80, 65, 42, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      // Blurry eyes
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(68, 80, 7, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(92, 80, 7, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Iris
+      ctx.fillStyle = '#2c5d4f';
+      ctx.beginPath();
+      ctx.arc(68, 80, 3.5, 0, Math.PI * 2);
+      ctx.arc(92, 80, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lips
+      ctx.fillStyle = '#be5965';
+      ctx.beginPath();
+      ctx.ellipse(80, 108, 9, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Urban landscape
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 160, 160);
+
+      // Neon buildings
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(20, 50, 35, 110);
+      ctx.fillRect(65, 30, 45, 130);
+      ctx.fillRect(120, 60, 30, 100);
+
+      // Glowing neon windows
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(72, 45, 12, 6);
+      ctx.fillRect(72, 60, 12, 6);
+      ctx.fillRect(72, 75, 12, 6);
+
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(30, 70, 15, 4);
+      ctx.fillRect(30, 85, 15, 4);
+    }
+
+    // Heavy blur simulation
+    const low = document.createElement('canvas');
+    low.width = 80;
+    low.height = 80;
+    const lCtx = low.getContext('2d')!;
+    lCtx.imageSmoothingQuality = 'low';
+    lCtx.drawImage(c, 0, 0, 80, 80);
+
+    const dataUrl = low.toDataURL('image/jpeg', 0.4);
+    setOriginalUrl(dataUrl);
+    processImage(dataUrl, scale, sharpnessLevel);
   };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
-      {/* Top Header */}
-      <Header
-        hasApiKey={hasApiKey}
-        onReset={handleReset}
-        onOpenHelp={() => setIsHelpOpen(true)}
-        isProcessing={isProcessing}
-        engineUsed={engineUsed}
-      />
-
-      {/* Error alert toast */}
-      {errorMessage && (
-        <div className="max-w-7xl mx-auto px-4 lg:px-8 w-full mt-3">
-          <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-center justify-between gap-3 shadow-lg">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{errorMessage}</span>
+      {/* Header */}
+      <header className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md px-4 lg:px-8 py-3.5 sticky top-0 z-30">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600 shadow-md shadow-indigo-600/30">
+              <Sparkles className="w-4 h-4 text-white" />
             </div>
+            <div>
+              <h1 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-1.5">
+                NeuralPixel <span className="text-indigo-400 font-semibold">Sharp</span>
+              </h1>
+              <p className="text-[11px] text-zinc-400 hidden sm:block">
+                Convert blurry, low-res photos into crisp, sharp, high-quality images
+              </p>
+            </div>
+          </div>
+
+          {originalUrl && (
             <button
-              onClick={() => setErrorMessage(null)}
-              className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-900 transition-colors"
+              onClick={() => {
+                setOriginalUrl(null);
+                setEnhancedResult(null);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-300 hover:text-white border border-zinc-800 transition-colors"
             >
-              <X className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Upload New Photo</span>
             </button>
-          </div>
+          )}
         </div>
-      )}
+      </header>
 
-      {/* Main Workspace */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 lg:px-8 py-5 space-y-5">
-        {/* Top Section: Comparison Viewer + Controls Sidebar */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left/Center: Interactive Visual Comparison */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
-            <ImageComparison
-              originalUrl={originalUrl}
-              enhancedUrl={enhancedUrl}
-              differenceMapUrl={differenceMapUrl}
-              originalMetrics={originalMetrics}
-              enhancedMetrics={enhancedMetrics}
-              isProcessing={isProcessing}
-              scaleFactor={settings.scale}
-              mode={settings.mode}
-            />
+      {/* Main Content */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 sm:py-8 flex flex-col items-center justify-center">
+        {/* VIEW 1: DROPZONE (When no image is uploaded) */}
+        {!originalUrl && (
+          <div className="w-full max-w-2xl flex flex-col items-center gap-6 animate-in fade-in duration-300">
+            <div className="text-center space-y-1.5">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Enhance & Sharpen Blurry Photos
+              </h2>
+              <p className="text-sm text-zinc-400 max-w-md mx-auto">
+                Drop any low-resolution or fuzzy photo to instantly reconstruct sharp edges, deep clarity, and 4× resolution.
+              </p>
+            </div>
 
-            {/* Neural Vision Diagnostic Card */}
-            <DiagnosticCard
-              analysis={analysis}
-              isAnalyzing={isAnalyzing}
-              onRunAnalysis={handleRunAnalysis}
-              hasApiKey={hasApiKey}
-            />
+            {/* Dropzone Area */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`w-full p-8 sm:p-12 rounded-3xl border-2 border-dashed cursor-pointer transition-all flex flex-col items-center justify-center gap-4 text-center ${
+                isDraggingFile
+                  ? 'border-indigo-500 bg-indigo-950/20 scale-[1.01]'
+                  : 'border-zinc-800 hover:border-indigo-500/70 bg-zinc-900/40 hover:bg-zinc-900/70 shadow-2xl'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                className="hidden"
+              />
 
-            {/* Histogram graph */}
-            <Histogram
-              originalCanvasRef={originalCanvasRef.current}
-              enhancedCanvasRef={enhancedCanvasRef.current}
-            />
+              <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
+                <Upload className="w-7 h-7" />
+              </div>
+
+              <div>
+                <p className="text-base font-semibold text-zinc-200">
+                  Drag and drop your photo here
+                </p>
+                <p className="text-xs text-zinc-400 mt-1">
+                  or <span className="text-indigo-400 underline font-medium">browse from your computer</span> • Paste with Ctrl+V
+                </p>
+                <p className="text-[11px] text-zinc-500 mt-2">
+                  Supports JPG, PNG, WebP • Auto-upscales & sharpens immediately
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Test Demo Samples */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 text-xs text-zinc-400">
+              <span>Don't have a photo? Test with a sample:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadDemo('face')}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-colors font-medium flex items-center gap-1.5"
+                >
+                  <span>👤 Blurry Portrait</span>
+                </button>
+                <button
+                  onClick={() => loadDemo('scene')}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-colors font-medium flex items-center gap-1.5"
+                >
+                  <span>🏙️ Fuzzy Landscape</span>
+                </button>
+              </div>
+            </div>
           </div>
+        )}
 
-          {/* Right: Controls Panel */}
-          <div className="lg:col-span-4 sticky top-16">
-            <ControlsPanel
-              settings={settings}
-              onUpdateSettings={(newSettings) =>
-                setSettings((prev) => ({ ...prev, ...newSettings }))
-              }
-              onEnhanceWithGemini={handleEnhanceWithGemini}
-              onEnhanceClientFast={handleEnhanceClientFast}
-              onDownload={handleDownload}
-              onCopyClipboard={handleCopyClipboard}
-              isProcessing={isProcessing}
-              hasEnhancedImage={Boolean(enhancedUrl)}
-              hasApiKey={hasApiKey}
-            />
+        {/* VIEW 2: ENHANCED RESULT & DOWNLOAD (When image is uploaded) */}
+        {originalUrl && (
+          <div className="w-full flex flex-col gap-5 animate-in fade-in duration-200">
+            {/* Top Status & Quick Stats */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" />
+                  Enhanced & Sharpened
+                </span>
+                {enhancedResult && (
+                  <span className="text-zinc-400">
+                    Resolution: <strong className="text-zinc-200">{enhancedResult.originalWidth}×{enhancedResult.originalHeight}</strong> ➜ <strong className="text-indigo-400">{enhancedResult.enhancedWidth}×{enhancedResult.enhancedHeight}px</strong> ({scale}× Resolution)
+                  </span>
+                )}
+              </div>
+
+              {/* Hold Spacebar Tip */}
+              <div className="flex items-center gap-2 text-zinc-400">
+                <button
+                  onMouseDown={() => setIsHoldingOriginal(true)}
+                  onMouseUp={() => setIsHoldingOriginal(false)}
+                  onTouchStart={() => setIsHoldingOriginal(true)}
+                  onTouchEnd={() => setIsHoldingOriginal(false)}
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                    isHoldingOriginal
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5 inline mr-1" />
+                  {isHoldingOriginal ? 'Showing Blurry Original' : 'Hold to View Original'}
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Before/After Split Comparison Viewer */}
+            <div
+              ref={containerRef}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onTouchMove={handleTouchMove}
+              onMouseLeave={() => setIsDraggingSlider(false)}
+              className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[65vh] bg-zinc-950 rounded-2xl border border-zinc-800/80 overflow-hidden shadow-2xl cursor-ew-resize select-none flex items-center justify-center"
+            >
+              {isProcessing && (
+                <div className="absolute inset-0 z-30 bg-zinc-950/70 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+                  <div className="w-10 h-10 rounded-full border-3 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+                  <p className="text-xs font-semibold text-white">Sharpening & Reconstructing Edges...</p>
+                </div>
+              )}
+
+              {/* Enhanced Sharp Image (Background) */}
+              {enhancedResult && (
+                <img
+                  src={isHoldingOriginal ? originalUrl : enhancedResult.dataUrl}
+                  alt="Enhanced Sharp Image"
+                  className="max-w-full max-h-full object-contain pointer-events-none"
+                />
+              )}
+
+              {/* Blurry Original Image (Foreground clipped by slider) */}
+              {originalUrl && !isHoldingOriginal && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none"
+                  style={{
+                    clipPath: `polygon(0 0, ${sliderPos}% 0, ${sliderPos}% 100%, 0 100%)`,
+                  }}
+                >
+                  <img
+                    src={originalUrl}
+                    alt="Original Blurry Image"
+                    className="max-w-full max-h-full object-contain pointer-events-none [image-rendering:pixelated]"
+                  />
+                </div>
+              )}
+
+              {/* Divider Handle */}
+              {!isHoldingOriginal && (
+                <div
+                  className="absolute pointer-events-none z-20 flex items-center justify-center top-0 bottom-0"
+                  style={{
+                    left: `${sliderPos}%`,
+                    transform: 'translateX(-50%)',
+                    width: '2px',
+                    backgroundColor: '#6366f1',
+                    boxShadow: '0 0 10px rgba(99, 102, 241, 0.9)',
+                  }}
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 border-2 border-white shadow-xl flex items-center justify-center text-white text-[10px] font-bold">
+                    ◀ ▶
+                  </div>
+                </div>
+              )}
+
+              {/* Floating Labels */}
+              <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-lg bg-zinc-950/80 border border-zinc-800 text-[11px] font-bold text-amber-400 backdrop-blur-md pointer-events-none shadow-md">
+                BEFORE (Blurry Original)
+              </div>
+              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-indigo-950/80 border border-indigo-700 text-[11px] font-bold text-cyan-300 backdrop-blur-md pointer-events-none shadow-md flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-cyan-400" />
+                AFTER (Sharp & Enhanced)
+              </div>
+            </div>
+
+            {/* Bottom Controls Bar & DOWNLOAD ACTION */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+              {/* Sharpness & Scale controls */}
+              <div className="flex flex-wrap items-center gap-4 text-xs w-full md:w-auto">
+                {/* Scale selection */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-zinc-400 font-medium">Scale:</span>
+                  <div className="flex items-center bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+                    <button
+                      onClick={() => handleSettingChange(2, sharpnessLevel)}
+                      className={`px-3 py-1 rounded-md font-semibold transition-colors ${
+                        scale === 2
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      2× HD
+                    </button>
+                    <button
+                      onClick={() => handleSettingChange(4, sharpnessLevel)}
+                      className={`px-3 py-1 rounded-md font-semibold transition-colors ${
+                        scale === 4
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      4× Ultra HD
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sharpness Level */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-zinc-400 font-medium">Sharpness:</span>
+                  <div className="flex items-center bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+                    <button
+                      onClick={() => handleSettingChange(scale, 'crisp')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                        sharpnessLevel === 'crisp'
+                          ? 'bg-zinc-800 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Crisp
+                    </button>
+                    <button
+                      onClick={() => handleSettingChange(scale, 'ultra')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                        sharpnessLevel === 'ultra'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Ultra Sharp
+                    </button>
+                    <button
+                      onClick={() => handleSettingChange(scale, 'extreme')}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                        sharpnessLevel === 'extreme'
+                          ? 'bg-zinc-800 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Extreme
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* PRIMARY DOWNLOAD BUTTON */}
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <button
+                  onClick={handleDownload}
+                  disabled={!enhancedResult}
+                  className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all active:scale-[0.98]"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Enhanced Image</span>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-
-        {/* Bottom: Curated Low-Res Benchmark Samples & Upload Dropzone */}
-        <SampleGallery
-          onSelectSample={handleSelectSample}
-          onUploadFile={handleUploadFile}
-          activeSampleId={activeSampleId}
-        />
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-900 bg-zinc-950 py-4 px-4 text-center text-xs text-zinc-500">
-        <p>
-          NeuralPixel AI • Generative Neural Super-Resolution & Real-ESRGAN / GFPGAN style photo enhancement
-        </p>
+      <footer className="border-t border-zinc-900 bg-zinc-950 py-3.5 px-4 text-center text-xs text-zinc-500">
+        <p>NeuralPixel Sharp • Dropzone photo enhancer & sharpness upscaler</p>
       </footer>
-
-      {/* Help Modal */}
-      <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
     </div>
   );
 }
